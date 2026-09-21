@@ -612,6 +612,10 @@ type TasklistTemplateListRequestFilters struct {
 	// TasklistTemplateSideloadDefaultTasks to retrieve the tasks defined by each
 	// template.
 	Include []TasklistTemplateSideload
+
+	// CountMode selects whether the API computes the exact number of templates
+	// matching the filters.
+	CountMode twapi.ListCountMode
 }
 
 func (t TasklistTemplateListRequestFilters) apply(req *http.Request) {
@@ -638,6 +642,7 @@ func (t TasklistTemplateListRequestFilters) apply(req *http.Request) {
 		}
 		query.Set("include", strings.Join(include, ","))
 	}
+	t.CountMode.Apply(query)
 	req.URL.RawQuery = query.Encode()
 }
 
@@ -700,6 +705,7 @@ func (t *TasklistTemplateListResponse) HandleHTTPResponse(resp *http.Response) e
 // SetRequest sets the request used to load this response for pagination.
 func (t *TasklistTemplateListResponse) SetRequest(req TasklistTemplateListRequest) {
 	t.request = req
+	t.Meta.ResolveCount(req.Filters.CountMode)
 }
 
 // Iterate returns the request for the next page, if available.
