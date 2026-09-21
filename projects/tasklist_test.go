@@ -177,3 +177,41 @@ func TestTasklistList(t *testing.T) {
 		})
 	}
 }
+
+
+func TestTasklistTemplateListHTTPRequest(t *testing.T) {
+	req := projects.NewTasklistTemplateListRequest()
+	req.Filters.SearchTerm = "manipe"
+	req.Filters.OrderBy = projects.TasklistOrderByName
+	req.Filters.OrderMode = "desc"
+	req.Filters.Page = 2
+	req.Filters.PageSize = 25
+	req.Filters.Include = []projects.TasklistTemplateSideload{
+		projects.TasklistTemplateSideloadDefaultTasks,
+	}
+
+	httpRequest, err := req.HTTPRequest(t.Context(), "https://example.teamwork.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	if got, want := httpRequest.Method, "GET"; got != want {
+		t.Errorf("method = %q, want %q", got, want)
+	}
+	if got, want := httpRequest.URL.Path, "/projects/api/v3/tasklists/templates.json"; got != want {
+		t.Errorf("path = %q, want %q", got, want)
+	}
+
+	query := httpRequest.URL.Query()
+	for key, want := range map[string]string{
+		"searchTerm": "manipe",
+		"orderBy":    "name",
+		"orderMode":  "desc",
+		"page":       "2",
+		"pageSize":   "25",
+		"include":    "defaultTasks",
+	} {
+		if got := query.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

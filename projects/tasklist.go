@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	twapi "github.com/teamwork/twapi-go-sdk"
@@ -23,6 +24,8 @@ var (
 	_ twapi.HTTPResponser = (*TasklistGetResponse)(nil)
 	_ twapi.HTTPRequester = (*TasklistListRequest)(nil)
 	_ twapi.HTTPResponser = (*TasklistListResponse)(nil)
+	_ twapi.HTTPRequester = (*TasklistTemplateListRequest)(nil)
+	_ twapi.HTTPResponser = (*TasklistTemplateListResponse)(nil)
 )
 
 // Tasklist is a way to group related tasks within a project, helping teams
@@ -572,4 +575,154 @@ func TasklistList(
 	req TasklistListRequest,
 ) (*TasklistListResponse, error) {
 	return twapi.Execute[TasklistListRequest, *TasklistListResponse](ctx, engine, req)
+}
+
+
+// TasklistTemplateSideload identifies related entities that can be included
+// when listing tasklist templates.
+type TasklistTemplateSideload string
+
+// Supported tasklist template sideloads.
+const (
+	TasklistTemplateSideloadDefaultTasks TasklistTemplateSideload = "defaultTasks"
+)
+
+// TasklistTemplateListRequestFilters contains the filters for loading tasklist
+// templates.
+type TasklistTemplateListRequestFilters struct {
+	// SearchTerm is an optional search term to filter tasklist templates by
+	// name.
+	SearchTerm string
+
+	// OrderBy is the field to sort the results by. It uses the same vocabulary
+	// as regular tasklists.
+	OrderBy TasklistOrderBy
+
+	// OrderMode is the direction to sort the results in.
+	OrderMode twapi.OrderMode
+
+	// Page is the page number to retrieve. Defaults to 1.
+	Page int64
+
+	// PageSize is the number of tasklist templates to retrieve per page.
+	// Defaults to 50.
+	PageSize int64
+
+	// Include lists related entities to sideload. Use
+	// TasklistTemplateSideloadDefaultTasks to retrieve the tasks defined by each
+	// template.
+	Include []TasklistTemplateSideload
+
+	// CountMode selects whether the API computes the exact number of templates
+	// matching the filters.
+	CountMode twapi.ListCountMode
+}
+
+func (t TasklistTemplateListRequestFilters) apply(req *http.Request) {
+	query := req.URL.Query()
+	if t.SearchTerm != "" {
+		query.Set("searchTerm", t.SearchTerm)
+	}
+	if t.OrderBy != "" {
+		query.Set("orderBy", string(t.OrderBy))
+	}
+	if t.OrderMode != "" {
+		query.Set("orderMode", string(t.OrderMode))
+	}
+	if t.Page > 0 {
+		query.Set("page", strconv.FormatInt(t.Page, 10))
+	}
+	if t.PageSize > 0 {
+		query.Set("pageSize", strconv.FormatInt(t.PageSize, 10))
+	}
+	if len(t.Include) > 0 {
+		include := make([]string, 0, len(t.Include))
+		for _, sideload := range t.Include {
+			include = append(include, string(sideload))
+		}
+		query.Set("include", strings.Join(include, ","))
+	}
+	t.CountMode.Apply(query)
+	req.URL.RawQuery = query.Encode()
+}
+
+// TasklistTemplateListRequest represents the request for loading tasklist
+// templates.
+//
+// https://apidocs.teamwork.com/docs/teamwork/v3/task-lists/get-projects-api-v3-tasklists-templates-json
+type TasklistTemplateListRequest struct {
+	// Filters contains the filters for loading tasklist templates.
+	Filters TasklistTemplateListRequestFilters
+}
+
+// NewTasklistTemplateListRequest creates a new TasklistTemplateListRequest with
+// default pagination values.
+func NewTasklistTemplateListRequest() TasklistTemplateListRequest {
+	return TasklistTemplateListRequest{
+		Filters: TasklistTemplateListRequestFilters{
+			Page:     1,
+			PageSize: 50,
+		},
+	}
+}
+
+// HTTPRequest creates an HTTP request for the TasklistTemplateListRequest.
+func (t TasklistTemplateListRequest) HTTPRequest(ctx context.Context, server string) (*http.Request, error) {
+	uri := server + "/projects/api/v3/tasklists/templates.json"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, err
+	}
+	t.Filters.apply(req)
+
+	return req, nil
+}
+
+// TasklistTemplateListResponse contains tasklist templates matching the request
+// filters.
+type TasklistTemplateListResponse struct {
+	request TasklistTemplateListRequest
+
+	Meta      twapi.ListMeta             `json:"meta"`
+	Tasklists []Tasklist                 `json:"tasklists"`
+	Included  map[string]json.RawMessage `json:"included"`
+}
+
+// HandleHTTPResponse handles the HTTP response for the
+// TasklistTemplateListResponse.
+func (t *TasklistTemplateListResponse) HandleHTTPResponse(resp *http.Response) error {
+	if resp.StatusCode != http.StatusOK {
+		return twapi.NewHTTPError(resp, "failed to list tasklist templates")
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(t); err != nil {
+		return fmt.Errorf("failed to decode tasklist templates response: %w", err)
+	}
+	return nil
+}
+
+// SetRequest sets the request used to load this response for pagination.
+func (t *TasklistTemplateListResponse) SetRequest(req TasklistTemplateListRequest) {
+	t.request = req
+	t.Meta.ResolveCount(req.Filters.CountMode)
+}
+
+// Iterate returns the request for the next page, if available.
+func (t *TasklistTemplateListResponse) Iterate() *TasklistTemplateListRequest {
+	if !t.Meta.Page.HasMore {
+		return nil
+	}
+	req := t.request
+	req.Filters.Page++
+	return &req
+}
+
+// TasklistTemplateList retrieves tasklist templates using the provided request.
+func TasklistTemplateList(
+	ctx context.Context,
+	engine *twapi.Engine,
+	req TasklistTemplateListRequest,
+) (*TasklistTemplateListResponse, error) {
+	return twapi.Execute[TasklistTemplateListRequest, *TasklistTemplateListResponse](ctx, engine, req)
 }
